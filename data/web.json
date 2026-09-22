@@ -1,0 +1,152 @@
+[
+  {
+    "titre": "Ordre de l'event loop",
+    "enonce": "Donne l'ordre exact des logs :\n```js\nconsole.log(1);\nsetTimeout(() => console.log(2));\nPromise.resolve().then(() => console.log(3));\nqueueMicrotask(() => console.log(4));\n(async () => { console.log(5); await null; console.log(6); })();\nconsole.log(7);\n```",
+    "solution": "1, 5, 7, 3, 4, 6, 2\n\nSynchrone d'abord (1, 5, 7) — le corps d'une async s'exécute jusqu'au premier await. Puis les microtâches dans l'ordre d'enfilement (3, 4, puis 6 qui n'a été enfilée qu'au moment du await). setTimeout est une macrotâche : toujours après l'épuisement complet de la file de microtâches."
+  },
+  {
+    "titre": "Pool de promesses",
+    "enonce": "Implémente `pool(tasks, limit)` : exécute des fonctions async avec au plus `limit` en vol, et renvoie les résultats **dans l'ordre d'entrée**.",
+    "solution": "```js\nasync function pool(tasks, limit) {\n  const results = new Array(tasks.length);\n  let i = 0;\n  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {\n    while (i < tasks.length) {\n      const idx = i++;\n      results[idx] = await tasks[idx]();\n    }\n  });\n  await Promise.all(workers);\n  return results;\n}\n```\nLe piège : `i++` capturé AVANT le await, sinon deux workers prennent la même tâche."
+  },
+  {
+    "titre": "Search-as-you-type : réponse périmée",
+    "enonce": "L'utilisateur tape vite, la requête « ab » répond APRÈS « abc » et écrase le bon résultat. Corrige ça de deux manières.",
+    "solution": "```js\n// 1. AbortController : on annule la requête précédente\nlet ctrl;\nasync function search(q) {\n  ctrl?.abort();\n  ctrl = new AbortController();\n  const r = await fetch(url(q), { signal: ctrl.signal });\n  render(await r.json());\n}\n\n// 2. Garde de séquence (si l'annulation est impossible)\nlet seq = 0;\nasync function search(q) {\n  const id = ++seq;\n  const data = await get(q);\n  if (id === seq) render(data); // on ignore les réponses périmées\n}\n```"
+  },
+  {
+    "titre": "Objet réactif en Proxy",
+    "enonce": "Fais un `reactive(obj, onChange)` qui déclenche `onChange(prop)` sur toute écriture, **y compris sur les objets imbriqués**.",
+    "solution": "```js\nfunction reactive(obj, onChange) {\n  return new Proxy(obj, {\n    get(t, k, r) {\n      const v = Reflect.get(t, k, r);\n      return v && typeof v === 'object' ? reactive(v, onChange) : v;\n    },\n    set(t, k, v, r) {\n      const ok = Reflect.set(t, k, v, r);\n      if (ok) onChange(k);\n      return ok;\n    },\n    deleteProperty(t, k) { const ok = Reflect.deleteProperty(t, k); if (ok) onChange(k); return ok; }\n  });\n}\n// Limite : chaque get recrée un Proxy → mets un WeakMap en cache.\n```"
+  },
+  {
+    "titre": "Layout thrashing",
+    "enonce": "```js\nfor (const el of items) {\n  el.style.height = el.offsetHeight * 2 + 'px';\n}\n```\nPourquoi ça rame sur 500 éléments, et comment corriger ?",
+    "solution": "Chaque lecture de `offsetHeight` force un reflow synchrone parce qu'une écriture vient de salir le layout → 500 reflows au lieu d'un.\n\nSépare lectures et écritures :\n```js\nconst heights = items.map(el => el.offsetHeight); // toutes les lectures\nitems.forEach((el, i) => el.style.height = heights[i] * 2 + 'px');\n```\nLes écritures sont groupées par le navigateur jusqu'au prochain frame."
+  },
+  {
+    "titre": "Retry avec backoff",
+    "enonce": "Écris `retry(fn, { tries, baseDelay, signal })` : backoff exponentiel + jitter, abandon immédiat sur erreur 4xx, annulable.",
+    "solution": "```js\nasync function retry(fn, { tries = 4, baseDelay = 300, signal } = {}) {\n  for (let n = 0; ; n++) {\n    try { return await fn({ signal }); }\n    catch (e) {\n      if (e.status >= 400 && e.status < 500) throw e; // inutile de réessayer\n      if (n >= tries - 1 || signal?.aborted) throw e;\n      const wait = baseDelay * 2 ** n * (0.5 + Math.random()); // jitter\n      await new Promise((res, rej) => {\n        const t = setTimeout(res, wait);\n        signal?.addEventListener('abort', () => { clearTimeout(t); rej(signal.reason); }, { once: true });\n      });\n    }\n  }\n}\n```"
+  },
+  {
+    "titre": "Cache LRU",
+    "enonce": "Implémente une classe `LRU(capacity)` avec `get` et `set` en O(1), qui évince l'entrée la moins récemment utilisée.",
+    "solution": "```js\nclass LRU {\n  #map = new Map();\n  constructor(capacity) { this.capacity = capacity; }\n  get(k) {\n    if (!this.#map.has(k)) return undefined;\n    const v = this.#map.get(k);\n    this.#map.delete(k); this.#map.set(k, v); // repousse en fin\n    return v;\n  }\n  set(k, v) {\n    this.#map.delete(k);\n    this.#map.set(k, v);\n    if (this.#map.size > this.capacity) this.#map.delete(this.#map.keys().next().value);\n  }\n}\n// Map garde l'ordre d'insertion → pas besoin de liste chaînée.\n```"
+  },
+  {
+    "titre": "Fuite mémoire",
+    "enonce": "Trouve les 3 fuites :\n```js\nfunction mount(node, data) {\n  const big = new Array(1e6).fill(data);\n  window.addEventListener('resize', () => node.classList.toggle('x'));\n  setInterval(() => node.textContent = big.length, 1000);\n  node.onclick = () => console.log(big[0]);\n}\n```",
+    "solution": "1. Le listener `resize` sur window garde `node` vivant après démontage → jamais retiré.\n2. `setInterval` n'est jamais clear → il maintient `big` (1M d'entrées) et `node` indéfiniment.\n3. `onclick` capture `big` dans une closure attachée au DOM : si le node est détaché mais référencé ailleurs, `big` reste.\n\nCorrectif : un `AbortController` unique →\n```js\nconst ac = new AbortController();\nwindow.addEventListener('resize', fn, { signal: ac.signal });\n// unmount: ac.abort(); clearInterval(id);\n```"
+  },
+  {
+    "titre": "Deep clone avec cycles",
+    "enonce": "Clone un objet contenant Map, Set, Date, et une **référence circulaire**, sans `structuredClone`.",
+    "solution": "```js\nfunction clone(v, seen = new WeakMap()) {\n  if (v === null || typeof v !== 'object') return v;\n  if (seen.has(v)) return seen.get(v); // casse le cycle\n  let out;\n  if (v instanceof Date) return new Date(v);\n  if (v instanceof Map) { out = new Map(); seen.set(v, out); for (const [k, val] of v) out.set(clone(k, seen), clone(val, seen)); return out; }\n  if (v instanceof Set) { out = new Set(); seen.set(v, out); for (const val of v) out.add(clone(val, seen)); return out; }\n  out = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));\n  seen.set(v, out);\n  for (const k of Reflect.ownKeys(v)) out[k] = clone(v[k], seen);\n  return out;\n}\n```"
+  },
+  {
+    "titre": "@layer et spécificité",
+    "enonce": "```css\n@layer base, theme;\n@layer theme { a { color: red } }\n@layer base { #nav a { color: blue } }\na { color: green }\n```\nQuelle couleur, et pourquoi ?",
+    "solution": "**green.**\n\nOrdre de priorité (déclarations normales) : hors-layer > dernière layer > … > première layer. La spécificité n'est comparée qu'À L'INTÉRIEUR d'une même couche.\n\nDonc `a { color: green }`, non layered, bat tout — même le `#nav a` (1-0-1) de `base`.\nEt si on retirait green : `theme` (déclarée après `base`) gagnerait malgré sa spécificité ridicule.\n\nAvec `!important` l'ordre s'inverse : la PREMIÈRE layer l'emporte, et les !important layered battent les !important hors-layer."
+  },
+  {
+    "titre": "WeakMap et données privées",
+    "enonce": "Pourquoi un cache `new Map()` indexé par élément DOM fuit-il, et pas `new WeakMap()` ? Que devient l'entrée quand le node est retiré ?",
+    "solution": "`Map` garde une référence **forte** sur sa clé : le node retiré du DOM reste joignable depuis la Map → jamais collecté, et sa sous-arborescence non plus.\n\n`WeakMap` garde une référence **faible** : quand plus personne d'autre ne référence le node, l'entrée (clé ET valeur) devient éligible au GC automatiquement. D'où l'impossibilité d'itérer une WeakMap — le contenu peut disparaître entre deux instants."
+  },
+  {
+    "titre": "Type DeepReadonly",
+    "enonce": "En TypeScript, écris `DeepReadonly<T>` qui rend récursivement toutes les propriétés readonly, en préservant tableaux et fonctions.",
+    "solution": "```ts\ntype DeepReadonly<T> =\n  T extends (...args: any[]) => any ? T\n  : T extends readonly (infer U)[] ? readonly DeepReadonly<U>[]\n  : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> }\n  : T;\n\n// L'ordre compte : les fonctions AVANT object (une fonction est un object),\n// et les tableaux avant le mapped type sinon on mappe les index en clés.\n```"
+  },
+  {
+    "titre": "CORS preflight",
+    "enonce": "Un `fetch` POST JSON avec un header `X-Token` échoue en CORS alors que le GET passe. Explique précisément et donne les headers serveur nécessaires.",
+    "solution": "Le POST avec `Content-Type: application/json` + un header custom sort des « simple requests » → le navigateur envoie d'abord un **OPTIONS preflight**. Si le serveur ne le gère pas, tout est bloqué.\n\nRéponse serveur au OPTIONS :\n```\nAccess-Control-Allow-Origin: https://mon-site.fr\nAccess-Control-Allow-Methods: POST\nAccess-Control-Allow-Headers: Content-Type, X-Token\nAccess-Control-Max-Age: 86400\n```\nAvec `credentials: 'include'`, `Allow-Origin` ne peut PAS être `*` et il faut `Allow-Credentials: true`."
+  },
+  {
+    "titre": "Throttle sur rAF",
+    "enonce": "Un handler de scroll coûteux fait tomber le framerate. Écris un throttle calé sur le rafraîchissement écran, qui n'exécute jamais deux fois dans le même frame.",
+    "solution": "```js\nfunction rafThrottle(fn) {\n  let id = null, lastArgs;\n  return (...args) => {\n    lastArgs = args;\n    if (id !== null) return;\n    id = requestAnimationFrame(() => { id = null; fn(...lastArgs); });\n  };\n}\nwindow.addEventListener('scroll', rafThrottle(onScroll), { passive: true });\n// { passive: true } : promet de ne pas preventDefault → le navigateur\n// n'attend pas le handler pour scroller.\n```"
+  },
+  {
+    "titre": "Générateur async paginé",
+    "enonce": "Écris un async generator qui parcourt une API paginée (`{ items, nextCursor }`) et se consomme en `for await (const item of all())`.",
+    "solution": "```js\nasync function* all(url) {\n  let cursor;\n  do {\n    const r = await fetch(`${url}?cursor=${cursor ?? ''}`);\n    const { items, nextCursor } = await r.json();\n    yield* items;\n    cursor = nextCursor;\n  } while (cursor);\n}\n\nfor await (const item of all('/api/users')) {\n  if (item.id === cible) break; // le générateur s'arrête, plus aucune page n'est chargée\n}\n// Le lazy est l'intérêt : on ne télécharge que ce qu'on consomme.\n```"
+  },
+  {
+    "titre": "Sélecteur :has()",
+    "enonce": "Sans JS : colore en rouge le label d'un champ invalide **déjà touché**, et masque une carte qui ne contient aucune image.",
+    "solution": "```css\n.field:has(input:user-invalid) label { color: red; }\n.card:not(:has(img)) { display: none; }\n```\n:user-invalid (et non :invalid) n'active qu'après interaction de l'utilisateur\n→ pas de rouge au chargement du formulaire vide.\n:has() est le premier sélecteur \"parent\" et il n'est pas récursif :\non ne peut pas imbriquer :has() dans :has()."
+  },
+  {
+    "titre": "EventEmitter complet",
+    "enonce": "Implémente `on`, `once`, `off`, `emit` où `off` fonctionne aussi pour un handler enregistré via `once`.",
+    "solution": "```js\nclass Emitter {\n  #m = new Map();\n  on(e, fn) { (this.#m.get(e) ?? this.#m.set(e, new Set()).get(e)).add(fn); return () => this.off(e, fn); }\n  once(e, fn) {\n    const wrap = (...a) => { this.off(e, wrap); fn(...a); };\n    wrap.orig = fn; // clé du problème\n    return this.on(e, wrap);\n  }\n  off(e, fn) {\n    const set = this.#m.get(e);\n    if (!set) return;\n    for (const h of set) if (h === fn || h.orig === fn) set.delete(h);\n  }\n  emit(e, ...a) { for (const h of [...(this.#m.get(e) ?? [])]) h(...a); }\n}\n// emit itère une COPIE : un handler qui se désabonne ne casse pas la boucle.\n```"
+  },
+  {
+    "titre": "Cache-Control",
+    "enonce": "Différencie `no-cache`, `no-store`, `must-revalidate` et `immutable`. Quelle politique pour `index.html` et pour `app.9f3a2b.js` ?",
+    "solution": "- `no-store` : rien n'est écrit sur disque (données sensibles).\n- `no-cache` : mise en cache autorisée mais **revalidation obligatoire** (ETag/304) à chaque requête.\n- `must-revalidate` : sert le cache tant qu'il est frais, interdit de servir du périmé ensuite.\n- `immutable` : promesse que le contenu ne changera jamais → le navigateur ne revalide même pas sur F5.\n\nindex.html → `no-cache` (toujours la dernière version, 304 si inchangé)\napp.9f3a2b.js (hashé) → `max-age=31536000, immutable`"
+  },
+  {
+    "titre": "Aplatir un objet",
+    "enonce": "Transforme `{a:{b:[{c:1}]}}` en `{'a.b.0.c': 1}`, puis écris la fonction inverse.",
+    "solution": "```js\nconst flat = (o, p = '', out = {}) => {\n  for (const [k, v] of Object.entries(o)) {\n    const key = p ? `${p}.${k}` : k;\n    if (v && typeof v === 'object') flat(v, key, out); else out[key] = v;\n  }\n  return out;\n};\n\nconst unflat = (o) => {\n  const root = {};\n  for (const [path, v] of Object.entries(o)) {\n    const keys = path.split('.');\n    keys.reduce((acc, k, i) =>\n      i === keys.length - 1 ? (acc[k] = v)\n      : acc[k] ??= (/^\\d+$/.test(keys[i + 1]) ? [] : {}), root);\n  }\n  return root;\n};\n```"
+  },
+  {
+    "titre": "Shadow DOM",
+    "enonce": "Écris un custom element `<x-tabs>` avec shadow DOM, un `<slot>`, et un style externe qui puisse quand même personnaliser la couleur du panneau actif.",
+    "solution": "```js\nclass XTabs extends HTMLElement {\n  connectedCallback() {\n    const s = this.attachShadow({ mode: 'open' });\n    s.innerHTML = `<style>\n      .panel { color: var(--tabs-active-color, #111); }\n      ::slotted(h2) { margin: 0; }\n    </style><div class=\"panel\"><slot></slot></div>`;\n  }\n}\ncustomElements.define('x-tabs', XTabs);\n\n// Le CSS externe ne traverse pas le shadow root. Les 3 portes d'entrée :\n// custom properties (héritées), ::part(), et ::slotted() pour le contenu projeté.\n```"
+  },
+  {
+    "titre": "`this` et flèches",
+    "enonce": "```js\nconst o = {\n  v: 1,\n  a() { return (() => this.v)(); },\n  b: () => this?.v,\n  c() { return function () { return this?.v; }(); }\n};\n```\nQue renvoient `o.a()`, `o.b()`, `o.c()` ?",
+    "solution": "`o.a()` → 1 : la flèche capture le `this` lexical de `a`, appelé en méthode.\n`o.b()` → undefined : la flèche capture le `this` du **module/script** au moment de la définition (undefined en module, globalThis en script non strict).\n`o.c()` → undefined : une fonction classique appelée sans receveur a `this === undefined` en mode strict (les modules le sont toujours).\n\nRègle : les flèches n'ont pas de `this` propre, elles n'en héritent qu'à la définition — jamais à l'appel. `call`/`bind` n'y changent rien."
+  },
+  {
+    "titre": "Virtualisation de liste",
+    "enonce": "10 000 lignes font ramer le DOM. Décris l'algorithme de virtual scroll à hauteur fixe, et le bug classique de l'effet « lignes blanches » au scroll rapide.",
+    "solution": "1. Un conteneur `overflow:auto` avec un spacer de hauteur `total = n * rowH`.\n2. À chaque scroll : `start = floor(scrollTop / rowH)`, `count = ceil(viewport / rowH) + overscan`.\n3. On ne rend que `items.slice(start, start + count)`, translaté de `start * rowH` (transform, pas top → pas de reflow).\n\nLignes blanches : le rendu est asynchrone (React/Vue) alors que le scroll est synchrone. Correctifs : overscan de quelques lignes hors écran, rendu dans le handler scroll `passive`, et `content-visibility: auto` pour laisser le navigateur sauter le layout hors écran."
+  },
+  {
+    "titre": "Curry générique",
+    "enonce": "Écris `curry(fn)` qui supporte `f(1)(2)(3)`, `f(1,2)(3)` et `f(1)(2,3)` pour n'importe quelle arité.",
+    "solution": "```js\nconst curry = (fn) =>\n  function curried(...args) {\n    return args.length >= fn.length\n      ? fn.apply(this, args)\n      : (...rest) => curried.apply(this, [...args, ...rest]);\n  };\n\n// fn.length = nombre de params déclarés, hors ...rest et hors valeurs par défaut.\n// Donc curry ne marche pas sur (a, b = 2) ni sur (...args) → il faut passer\n// l'arité explicitement dans ces cas : curry(fn, arity).\n```"
+  },
+  {
+    "titre": "CSP et inline",
+    "enonce": "Tu poses `Content-Security-Policy: script-src 'self'`. Qu'est-ce qui casse, et comment autoriser un script inline légitime sans ouvrir la porte au XSS ?",
+    "solution": "Cassent : tous les `<script>` inline, les handlers HTML (`onclick=`), `eval`, `new Function`, `setTimeout('code')`, et les styles inline si `style-src` est aussi restreint.\n\nSolution propre : un **nonce** généré par requête, imprévisible, jamais réutilisé :\n```\nContent-Security-Policy: script-src 'self' 'nonce-r4nd0m'\n<script nonce=\"r4nd0m\">…</script>\n```\nOu `'sha256-…'` pour un script statique. À éviter : `'unsafe-inline'` (annule la protection) et `'strict-dynamic'` sans comprendre qu'il transmet la confiance aux scripts chargés."
+  },
+  {
+    "titre": "Réduire le TBT",
+    "enonce": "Un parse JSON de 8 Mo + tri bloque le thread principal 900 ms. Donne 3 stratégies, avec leur coût.",
+    "solution": "1. **Web Worker** : parse + tri hors thread principal. Coût : le postMessage sérialise (structured clone) — utilise un `ArrayBuffer` transférable pour un coût quasi nul.\n2. **Découpage en tâches** : traiter par lots en rendant la main (`await scheduler.yield()`, ou `postTask`, ou setTimeout 0). Coût : plus lent au total, mais l'UI reste réactive.\n3. **Déplacer le travail** : pagination/tri côté serveur, ou streaming avec `Response.body` + `TextDecoderStream` pour traiter au fil de l'eau.\n\nLe vrai gain est souvent de ne pas envoyer 8 Mo au client."
+  },
+  {
+    "titre": "Object.freeze superficiel",
+    "enonce": "```js\nconst o = Object.freeze({ a: 1, b: { c: 2 } });\no.a = 9; o.b.c = 9;\n```\nQuel est l'état final, en strict et non-strict ? Écris `deepFreeze`.",
+    "solution": "`{ a: 1, b: { c: 9 } }` — le freeze est **superficiel**. En non-strict l'affectation `o.a = 9` échoue silencieusement ; en strict (module) elle jette un `TypeError`.\n\n```js\nconst deepFreeze = (o) => {\n  for (const v of Object.values(o))\n    if (v && typeof v === 'object' && !Object.isFrozen(v)) deepFreeze(v);\n  return Object.freeze(o);\n};\n```\nLe test `isFrozen` évite la boucle infinie sur les références circulaires."
+  },
+  {
+    "titre": "Template tag anti-XSS",
+    "enonce": "Écris un tag `html` qui échappe automatiquement les interpolations mais laisse passer une valeur explicitement marquée comme sûre.",
+    "solution": "```js\nconst esc = (s) => String(s).replace(/[&<>\"']/g, c =>\n  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\n\nclass Safe { constructor(v) { this.v = v; } toString() { return this.v; } }\nconst raw = (v) => new Safe(v);\n\nconst html = (strings, ...vals) =>\n  new Safe(strings.reduce((out, s, i) => {\n    const v = vals[i - 1];\n    return out + (v instanceof Safe ? v.v : esc(v)) + s;\n  }));\n\nhtml`<p>${userInput}</p>`        // échappé\nhtml`<div>${raw(trustedHtml)}</div>` // brut, explicite\n```"
+  },
+  {
+    "titre": "Tree-shaking cassé",
+    "enonce": "Tu importes une seule fonction d'une lib mais le bundle prend 300 Ko. Donne les 4 causes classiques.",
+    "solution": "1. **CommonJS** : `require` est dynamique → l'analyse statique est impossible. Il faut une build ESM (`\"module\"`/`\"exports\"` dans le package.json).\n2. **Effets de bord** : sans `\"sideEffects\": false`, le bundler doit conserver tout module dont l'évaluation pourrait agir (polyfill, CSS importé).\n3. **Barrel file** : un `index.js` qui ré-exporte 200 modules, dont certains à effets de bord → tout est tiré.\n4. **Import global** : `import _ from 'lodash'` au lieu de `lodash-es` ou `lodash/get`.\n\nDiagnostique avec `rollup-plugin-visualizer` / `source-map-explorer` avant d'optimiser à l'aveugle."
+  },
+  {
+    "titre": "Ordre de Promise.race",
+    "enonce": "```js\nconst a = new Promise(r => setTimeout(() => r('a'), 0));\nconst b = Promise.resolve('b');\nawait Promise.race([a, b]);      // ?\nawait Promise.any([Promise.reject(1), b]); // ?\nawait Promise.allSettled([a, Promise.reject(2)]); // ?\n```",
+    "solution": "1. `'b'` — b est déjà résolue, elle gagne au premier tour de microtâches.\n2. `'b'` — `any` ignore les rejets et renvoie la première **réussite** (si toutes échouent : `AggregateError`).\n3. `[{status:'fulfilled',value:'a'}, {status:'rejected',reason:2}]` — `allSettled` n'échoue jamais et attend **tout**, donc le setTimeout aussi.\n\nPiège : `race` avec une promesse déjà rejetée rejette immédiatement — pour un timeout, préfère `AbortSignal.timeout()` qui annule vraiment la requête."
+  },
+  {
+    "titre": "content-visibility",
+    "enonce": "Une page de 300 cartes met 2 s à peindre. Explique ce que font `content-visibility: auto` et `contain-intrinsic-size`, et le piège sur la scrollbar.",
+    "solution": "```css\n.card { content-visibility: auto; contain-intrinsic-size: auto 320px; }\n```\n`content-visibility: auto` saute le layout et le paint du contenu hors écran (mais pas le parse HTML). Gain typique : le premier paint ne traite que le visible.\n\n`contain-intrinsic-size` donne une **taille estimée** aux éléments sautés. Sans elle, ils comptent pour 0 → la barre de scroll saute pendant la navigation. Le mot-clé `auto` mémorise la vraie taille une fois l'élément rendu, ce qui stabilise le scroll.\n\nAutre piège : le contenu sauté est invisible pour Ctrl+F et l'a11y tant qu'il n'est pas rendu."
+  }
+]

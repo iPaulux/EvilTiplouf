@@ -1,0 +1,37 @@
+name: Défi quotidien
+
+on:
+  schedule:
+    # 07:00 UTC = 9h à Paris en été, 8h en hiver (GitHub ne gère pas les fuseaux).
+    - cron: '0 7 * * *'
+  workflow_dispatch: # bouton "Run workflow" pour tester à la main
+
+permissions:
+  contents: write # pour recommiter data/state.json
+
+concurrency: defi-quotidien # jamais deux envois en parallèle
+
+jobs:
+  envoyer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Poster les défis
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ROLE_ID: ${{ vars.ROLE_ID }}
+          TIMEZONE: Europe/Paris
+        run: node src/post.js
+
+      - name: Sauvegarder la progression
+        run: |
+          git config user.name "defi-bot"
+          git config user.email "defi-bot@users.noreply.github.com"
+          git add data/state.json
+          git diff --staged --quiet || git commit -m "défis du $(date -u +%F)"
+          git push
