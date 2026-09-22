@@ -44,6 +44,27 @@ Le bot pioche sans doublon : toute la liste est épuisée avant de recommencer (
 
 Le titre affiche un numéro d'édition (`Défis #12`) incrémenté **une fois par jour** : relancer plusieurs fois le même jour ne le fait pas bouger. Pour repartir d'un autre numéro, change `day` dans `data/state.json`.
 
-## Garder le bot allumé
+## Envoi automatique via GitHub Actions (sans serveur)
 
-`npm start` s'arrête si tu fermes le terminal. Pour du 24/7 : un petit VPS, Railway/Fly.io, ou un Raspberry Pi, avec `pm2 start src/index.js --name defis`.
+`npm start` s'arrête dès que tu fermes le terminal. Comme le bot n'a besoin de travailler que quelques secondes par jour, le workflow [.github/workflows/defi.yml](.github/workflows/defi.yml) fait le travail gratuitement, sans machine allumée : il poste via un **webhook Discord** (`src/post.js`), pas via la connexion gateway.
+
+1. **Webhook Discord** : salon des défis → Modifier le salon → Intégrations → Webhooks → Nouveau webhook → *Copier l'URL*.
+2. **Repo GitHub** : crée un repo **privé** puis, depuis ce dossier :
+   ```bash
+   git remote add origin git@github.com:<toi>/defi-quotidien-bot.git
+   git push -u origin main
+   ```
+3. **Secrets** : repo → Settings → Secrets and variables → Actions
+   - onglet *Secrets* → `DISCORD_WEBHOOK_URL` = l'URL du webhook
+   - onglet *Variables* → `ROLE_ID` = l'ID du rôle à ping (facultatif)
+4. **Tester** : onglet Actions → *Défi quotidien* → **Run workflow**.
+
+Le workflow recommite `data/state.json` après chaque envoi : c'est ce qui fait avancer le numéro d'édition et le sac anti-doublon d'un jour sur l'autre. Ne le supprime pas du repo.
+
+Deux limites à connaître : GitHub interprète le cron en **UTC** (`0 7 * * *` = 9h en été, 8h en hiver — ajuste à `0 8 * * *` au changement d'heure si ça t'embête), et les crons Actions peuvent partir avec 5 à 15 minutes de retard aux heures de pointe.
+
+En mode Actions, la commande `/defi` ne fonctionne plus : elle exige un process connecté en permanence. `npm start` reste disponible en local quand tu en veux.
+
+## Alternative : process permanent
+
+Sur un VPS ou un Raspberry Pi : `pm2 start src/index.js --name defis && pm2 save && pm2 startup`. Là, `/defi` fonctionne et l'heure est respectée à la seconde.
