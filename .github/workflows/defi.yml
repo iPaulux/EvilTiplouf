@@ -1,17 +1,21 @@
 name: Défi quotidien
 
 on:
+  # Déclencheur principal : un cron externe (cron-job.org) appelle l'API de dispatch
+  # à 10h30, parce que le planificateur de GitHub ne s'est jamais réveillé sur ce dépôt.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Envoyer même si le défi du jour est déjà parti
+        type: boolean
+        default: false
+
+  # Gardés en filet : si GitHub finit par honorer ses crons, les gardes de post.js
+  # empêchent tout doublon. Heures UTC ; le changement d'heure est absorbé par SEND_HOUR.
   schedule:
-    # GitHub lit le cron en UTC et n'a AUCUNE garantie de ponctualité : un run
-    # planifié peut être retardé, voire abandonné, surtout à l'heure pile.
-    # D'où trois tentatives à des minutes décalées. src/post.js n'envoie qu'une
-    # fois par jour, à partir de SEND_HOUR en heure de Paris — ce qui gère aussi
-    # le changement d'heure sans toucher à ce fichier.
-    - cron: '30 8 * * *' # 10h30 CEST (été) → envoie
-    - cron: '30 9 * * *' # 10h30 CET (hiver) → envoie
-    - cron: '30 12 * * *' # filet de sécurité si les deux précédents sautent
-    - cron: '*/10 * * * *' # TEMPORAIRE : vérifier que le planificateur tourne. À RETIRER.
-  workflow_dispatch: # bouton "Run workflow" : envoie toujours, sans condition
+    - cron: '30 8 * * *' # 10h30 CEST (été)
+    - cron: '30 9 * * *' # 10h30 CET (hiver)
+    - cron: '30 12 * * *' # rattrapage
 
 permissions:
   contents: write # pour recommiter data/state.json
@@ -34,7 +38,9 @@ jobs:
           ROLE_ID: ${{ vars.ROLE_ID }}
           TIMEZONE: Europe/Paris
           SEND_HOUR: '10'
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+          # Seule la case cochée à la main force l'envoi : un appel API sans input
+          # reste idempotent, donc un réessai du cron externe ne double pas le message.
+          FORCE: ${{ inputs.force && '1' || '0' }}
         run: node src/post.js
 
       - name: Sauvegarder la progression
