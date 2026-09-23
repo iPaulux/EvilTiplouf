@@ -67,9 +67,9 @@ GitHub lit le cron en **UTC** et, surtout, ne garantit **pas** l'exécution d'un
 
 Le workflow tente donc sa chance trois fois par jour, à des minutes décalées, et c'est `src/post.js` qui décide : il n'envoie que si l'heure locale a atteint `SEND_HOUR` (10h) **et** que rien n'est parti aujourd'hui (`lastDate` dans `data/state.json`). Les tentatives suivantes se terminent en quelques secondes sans rien poster.
 
-Effet de bord appréciable : le passage à l'heure d'hiver est absorbé tout seul. En été c'est le cron de 8h23 UTC qui envoie, en hiver celui de 9h23 — dans les deux cas à 10h23 à Paris, sans toucher au fichier.
+Effet de bord appréciable : le passage à l'heure d'hiver est absorbé tout seul. En été c'est le cron de 8h30 UTC qui envoie, en hiver celui de 9h30 — dans les deux cas à 10h30 à Paris, sans toucher au fichier.
 
-Pour changer l'heure d'envoi, modifie `SEND_HOUR` dans le workflow (et décale les crons s'il sort de leur plage).
+Pour changer l'heure d'envoi : la **minute** vient du cron, l'**heure** de `SEND_HOUR` (qui sert de plancher, pas de déclencheur). Pour 10h30 à Paris : crons à `30 8` et `30 9` UTC, `SEND_HOUR: '10'`.
 
 En mode Actions, la commande `/defi` ne fonctionne plus : elle exige un process connecté en permanence. `npm start` reste disponible en local quand tu en veux.
 

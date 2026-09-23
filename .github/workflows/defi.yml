@@ -7,9 +7,9 @@ on:
     # D'où trois tentatives à des minutes décalées. src/post.js n'envoie qu'une
     # fois par jour, à partir de SEND_HOUR en heure de Paris — ce qui gère aussi
     # le changement d'heure sans toucher à ce fichier.
-    - cron: '23 8 * * *' # 10h23 été / 9h23 hiver → envoie (été)
-    - cron: '23 9 * * *' # 11h23 été / 10h23 hiver → envoie (hiver)
-    - cron: '23 12 * * *' # filet de sécurité si les deux précédents sautent
+    - cron: '30 8 * * *' # 10h30 CEST (été) → envoie
+    - cron: '30 9 * * *' # 10h30 CET (hiver) → envoie
+    - cron: '30 12 * * *' # filet de sécurité si les deux précédents sautent
   workflow_dispatch: # bouton "Run workflow" : envoie toujours, sans condition
 
 permissions:
