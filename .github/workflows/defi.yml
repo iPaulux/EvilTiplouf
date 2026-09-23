@@ -10,6 +10,7 @@ on:
     - cron: '30 8 * * *' # 10h30 CEST (été) → envoie
     - cron: '30 9 * * *' # 10h30 CET (hiver) → envoie
     - cron: '30 12 * * *' # filet de sécurité si les deux précédents sautent
+    - cron: '*/10 * * * *' # TEMPORAIRE : vérifier que le planificateur tourne. À RETIRER.
   workflow_dispatch: # bouton "Run workflow" : envoie toujours, sans condition
 
 permissions:
