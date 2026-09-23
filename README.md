@@ -61,9 +61,9 @@ Le titre affiche un numéro d'édition (`Défis #12`) incrémenté **une fois pa
 
 Le workflow recommite `data/state.json` après chaque envoi : c'est ce qui fait avancer le numéro d'édition et le sac anti-doublon d'un jour sur l'autre. Ne le supprime pas du repo.
 
-### Le déclencheur : un cron externe
+### Si les crons ne partent jamais : plan B
 
-Le planificateur de GitHub n'a jamais déclenché le moindre run sur ce dépôt, même avec un cron toutes les 10 minutes (les crons Actions sont du « best effort », sans garantie contractuelle). L'envoi est donc piloté de l'extérieur, par [cron-job.org](https://cron-job.org) :
+Les crons Actions sont du « best effort », sans garantie contractuelle — sur ce dépôt, aucun run planifié n'était encore parti 26 h après sa création, même avec un cron toutes les 10 minutes. Si ça persiste, on déclenche de l'extérieur avec [cron-job.org](https://cron-job.org), qui appelle l'API de dispatch :
 
 | Champ | Valeur |
 |---|---|
@@ -71,7 +71,7 @@ Le planificateur de GitHub n'a jamais déclenché le moindre run sur ce dépôt,
 | Méthode | `POST` |
 | En-têtes | `Authorization: Bearer <TOKEN>`<br>`Accept: application/vnd.github+json`<br>`X-GitHub-Api-Version: 2022-11-28` |
 | Corps | `{"ref":"main"}` |
-| Horaire | tous les jours à 10:30, fuseau `Europe/Paris` |
+| Horaire | tous les jours à 9:30, fuseau `Europe/Paris` |
 
 Le token est un **fine-grained PAT** limité à ce seul dépôt, avec la permission *Actions : Read and write* et rien d'autre. Réponse attendue de GitHub : `204 No Content`.
 
@@ -79,13 +79,13 @@ Comme l'appel ne passe pas l'input `force`, les gardes de `src/post.js` s'appliq
 
 ### Les crons natifs, en filet
 
-Les trois `schedule` du workflow restent en place au cas où GitHub se réveillerait : ils sont en **UTC** (8h30 l'été, 9h30 l'hiver = 10h30 à Paris) et ne peuvent pas créer de doublon grâce aux gardes.
+Les trois `schedule` du workflow restent en place au cas où GitHub se réveillerait : ils sont en **UTC** (7h30 l'été, 8h30 l'hiver = 9h30 à Paris) et ne peuvent pas créer de doublon grâce aux gardes.
 
-Ces gardes, dans `src/post.js` : l'envoi n'a lieu que si l'heure locale a atteint `SEND_HOUR` (10h) **et** que rien n'est parti aujourd'hui (`lastDate` dans `data/state.json`). Tout le reste se termine en deux secondes sans rien poster.
+Ces gardes, dans `src/post.js` : l'envoi n'a lieu que si l'heure locale a atteint `SEND_HOUR` (9h) **et** que rien n'est parti aujourd'hui (`lastDate` dans `data/state.json`). Tout le reste se termine en deux secondes sans rien poster.
 
 C'est aussi ce qui absorbe le changement d'heure : `SEND_HOUR` est comparé à l'heure de Paris, pas à l'heure UTC.
 
-Pour changer l'heure d'envoi : c'est l'horaire de **cron-job.org** qui décide de la minute, et `SEND_HOUR` qui sert de plancher. Si tu veux envoyer avant 10h, baisse aussi `SEND_HOUR`, sinon le script refusera.
+Pour changer l'heure d'envoi : ce sont les crons du workflow qui décident de la minute, et `SEND_HOUR` qui sert de plancher. Si tu veux envoyer avant 9h, baisse aussi `SEND_HOUR`, sinon le script refusera.
 
 En mode Actions, la commande `/defi` ne fonctionne plus : elle exige un process connecté en permanence. `npm start` reste disponible en local quand tu en veux.
 
