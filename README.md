@@ -61,15 +61,31 @@ Le titre affiche un numéro d'édition (`Défis #12`) incrémenté **une fois pa
 
 Le workflow recommite `data/state.json` après chaque envoi : c'est ce qui fait avancer le numéro d'édition et le sac anti-doublon d'un jour sur l'autre. Ne le supprime pas du repo.
 
-### Pourquoi trois crons
+### Le déclencheur : un cron externe
 
-GitHub lit le cron en **UTC** et, surtout, ne garantit **pas** l'exécution d'un run planifié : aux heures chargées (l'heure pile en tête) il le retarde, ou l'abandonne sans rien dire.
+Le planificateur de GitHub n'a jamais déclenché le moindre run sur ce dépôt, même avec un cron toutes les 10 minutes (les crons Actions sont du « best effort », sans garantie contractuelle). L'envoi est donc piloté de l'extérieur, par [cron-job.org](https://cron-job.org) :
 
-Le workflow tente donc sa chance trois fois par jour, à des minutes décalées, et c'est `src/post.js` qui décide : il n'envoie que si l'heure locale a atteint `SEND_HOUR` (10h) **et** que rien n'est parti aujourd'hui (`lastDate` dans `data/state.json`). Les tentatives suivantes se terminent en quelques secondes sans rien poster.
+| Champ | Valeur |
+|---|---|
+| URL | `https://api.github.com/repos/iPaulux/EvilTiplouf/actions/workflows/defi.yml/dispatches` |
+| Méthode | `POST` |
+| En-têtes | `Authorization: Bearer <TOKEN>`<br>`Accept: application/vnd.github+json`<br>`X-GitHub-Api-Version: 2022-11-28` |
+| Corps | `{"ref":"main"}` |
+| Horaire | tous les jours à 10:30, fuseau `Europe/Paris` |
 
-Effet de bord appréciable : le passage à l'heure d'hiver est absorbé tout seul. En été c'est le cron de 8h30 UTC qui envoie, en hiver celui de 9h30 — dans les deux cas à 10h30 à Paris, sans toucher au fichier.
+Le token est un **fine-grained PAT** limité à ce seul dépôt, avec la permission *Actions : Read and write* et rien d'autre. Réponse attendue de GitHub : `204 No Content`.
 
-Pour changer l'heure d'envoi : la **minute** vient du cron, l'**heure** de `SEND_HOUR` (qui sert de plancher, pas de déclencheur). Pour 10h30 à Paris : crons à `30 8` et `30 9` UTC, `SEND_HOUR: '10'`.
+Comme l'appel ne passe pas l'input `force`, les gardes de `src/post.js` s'appliquent : un réessai ne poste jamais deux fois. Seule la case *force* cochée dans l'interface GitHub contourne les gardes.
+
+### Les crons natifs, en filet
+
+Les trois `schedule` du workflow restent en place au cas où GitHub se réveillerait : ils sont en **UTC** (8h30 l'été, 9h30 l'hiver = 10h30 à Paris) et ne peuvent pas créer de doublon grâce aux gardes.
+
+Ces gardes, dans `src/post.js` : l'envoi n'a lieu que si l'heure locale a atteint `SEND_HOUR` (10h) **et** que rien n'est parti aujourd'hui (`lastDate` dans `data/state.json`). Tout le reste se termine en deux secondes sans rien poster.
+
+C'est aussi ce qui absorbe le changement d'heure : `SEND_HOUR` est comparé à l'heure de Paris, pas à l'heure UTC.
+
+Pour changer l'heure d'envoi : c'est l'horaire de **cron-job.org** qui décide de la minute, et `SEND_HOUR` qui sert de plancher. Si tu veux envoyer avant 10h, baisse aussi `SEND_HOUR`, sinon le script refusera.
 
 En mode Actions, la commande `/defi` ne fonctionne plus : elle exige un process connecté en permanence. `npm start` reste disponible en local quand tu en veux.
 
