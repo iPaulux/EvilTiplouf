@@ -21,14 +21,22 @@ function shuffle(arr) {
   return a;
 }
 
+export const today = (timeZone) =>
+  new Intl.DateTimeFormat('fr-CA', { timeZone }).format(new Date());
+
+// Date du dernier envoi, sans rien consommer ni écrire.
+export async function lastSentDate() {
+  return (await readJson(statePath, {})).lastDate;
+}
+
 // Numéro d'édition : +1 au premier envoi de chaque journée, stable si on renvoie le même jour.
 export async function dayNumber(timeZone) {
-  const today = new Intl.DateTimeFormat('fr-CA', { timeZone }).format(new Date());
+  const date = today(timeZone);
   const state = await readJson(statePath, {});
 
-  if (state.lastDate !== today) {
+  if (state.lastDate !== date) {
     state.day = (state.day ?? 0) + 1;
-    state.lastDate = today;
+    state.lastDate = date;
     await writeFile(statePath, JSON.stringify(state, null, 2));
   }
 

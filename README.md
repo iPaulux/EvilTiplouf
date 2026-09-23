@@ -61,7 +61,15 @@ Le titre affiche un numéro d'édition (`Défis #12`) incrémenté **une fois pa
 
 Le workflow recommite `data/state.json` après chaque envoi : c'est ce qui fait avancer le numéro d'édition et le sac anti-doublon d'un jour sur l'autre. Ne le supprime pas du repo.
 
-Deux limites à connaître : GitHub interprète le cron en **UTC** (`0 7 * * *` = 9h en été, 8h en hiver — ajuste à `0 8 * * *` au changement d'heure si ça t'embête), et les crons Actions peuvent partir avec 5 à 15 minutes de retard aux heures de pointe.
+### Pourquoi trois crons
+
+GitHub lit le cron en **UTC** et, surtout, ne garantit **pas** l'exécution d'un run planifié : aux heures chargées (l'heure pile en tête) il le retarde, ou l'abandonne sans rien dire.
+
+Le workflow tente donc sa chance trois fois par jour, à des minutes décalées, et c'est `src/post.js` qui décide : il n'envoie que si l'heure locale a atteint `SEND_HOUR` (10h) **et** que rien n'est parti aujourd'hui (`lastDate` dans `data/state.json`). Les tentatives suivantes se terminent en quelques secondes sans rien poster.
+
+Effet de bord appréciable : le passage à l'heure d'hiver est absorbé tout seul. En été c'est le cron de 8h23 UTC qui envoie, en hiver celui de 9h23 — dans les deux cas à 10h23 à Paris, sans toucher au fichier.
+
+Pour changer l'heure d'envoi, modifie `SEND_HOUR` dans le workflow (et décale les crons s'il sort de leur plage).
 
 En mode Actions, la commande `/defi` ne fonctionne plus : elle exige un process connecté en permanence. `npm start` reste disponible en local quand tu en veux.
 

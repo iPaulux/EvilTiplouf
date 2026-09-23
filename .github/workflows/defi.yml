@@ -2,9 +2,15 @@ name: Défi quotidien
 
 on:
   schedule:
-    # 07:00 UTC = 9h à Paris en été, 8h en hiver (GitHub ne gère pas les fuseaux).
-    - cron: '0 7 * * *'
-  workflow_dispatch: # bouton "Run workflow" pour tester à la main
+    # GitHub lit le cron en UTC et n'a AUCUNE garantie de ponctualité : un run
+    # planifié peut être retardé, voire abandonné, surtout à l'heure pile.
+    # D'où trois tentatives à des minutes décalées. src/post.js n'envoie qu'une
+    # fois par jour, à partir de SEND_HOUR en heure de Paris — ce qui gère aussi
+    # le changement d'heure sans toucher à ce fichier.
+    - cron: '23 8 * * *' # 10h23 été / 9h23 hiver → envoie (été)
+    - cron: '23 9 * * *' # 11h23 été / 10h23 hiver → envoie (hiver)
+    - cron: '23 12 * * *' # filet de sécurité si les deux précédents sautent
+  workflow_dispatch: # bouton "Run workflow" : envoie toujours, sans condition
 
 permissions:
   contents: write # pour recommiter data/state.json
@@ -26,6 +32,8 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           ROLE_ID: ${{ vars.ROLE_ID }}
           TIMEZONE: Europe/Paris
+          SEND_HOUR: '10'
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: node src/post.js
 
       - name: Sauvegarder la progression
@@ -33,5 +41,6 @@ jobs:
           git config user.name "defi-bot"
           git config user.email "defi-bot@users.noreply.github.com"
           git add data/state.json
-          git diff --staged --quiet || git commit -m "défis du $(date -u +%F)"
+          git diff --staged --quiet && echo "Rien à sauvegarder." && exit 0
+          git commit -m "défis du $(date -u +%F)"
           git push
